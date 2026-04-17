@@ -175,10 +175,7 @@ ShellRoot {
 
             onSettingsExpandedChanged: {
                 if (!settingsExpanded) {
-                    settingsContent.showingWifi = false
-                    settingsContent.showingSound = false
-                    settingsContent.showingBluetooth = false
-                    settingsContent.showingPower = false
+                    settingsContent.view = SettingsContent.View.Settings
                     settingsContent.passwordRowSsid = ""
                     settingsContent.showPassword = false
                     settingsContent.connectError = ""
@@ -221,10 +218,7 @@ ShellRoot {
                 }
             }
 
-            readonly property int wifiLevel: {
-                const s = net.connectedSignal
-                return s >= 70 ? 3 : s >= 40 ? 2 : s > 0 ? 1 : 0
-            }
+            readonly property int wifiLevel: net.signalLevel(net.connectedSignal)
 
             // ── Settings pill (bottom-right anchored, expands up+left) ──
             Pill {
@@ -330,7 +324,7 @@ ShellRoot {
                 Shape {
                     id: osdSpeaker
                     anchors.left: parent.left
-                    anchors.leftMargin: settingsPill.padding
+                    anchors.leftMargin: 10
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: (settingsPill.pillHeight - height) / 2
                     width: 9; height: 14
@@ -407,7 +401,7 @@ ShellRoot {
         }
     }
 
-    // ── Music player (bottom-left, right of workspace) ──
+    // ── Music player (bottom-right, inboard of clock + settings pills) ──
     Variants {
         model: Quickshell.screens
 
@@ -472,7 +466,6 @@ ShellRoot {
             // Convenience properties (null-safe, same as noctalia)
             readonly property bool isPlaying: player ? (player.playbackState === MprisPlaybackState.Playing) : false
             readonly property string trackTitle: player ? (player.trackTitle || "") : ""
-            readonly property string trackArtist: player ? (player.trackArtist || "") : ""
             readonly property string trackAlbum: player ? (player.trackAlbum || "") : ""
             readonly property string trackArtUrl: player ? (player.trackArtUrl || "") : ""
 
@@ -496,10 +489,9 @@ ShellRoot {
                 activeCornerRadius: musicPanel.musicExpanded ? 16 : -1
 
                 // Dominant album color — written by ColorQuantizer via onColorsChanged.
-                // Drives the pill fill (via themeColor), the expanded border glow, and the
-                // inner-shadow shader inside the expanded album bg.
+                // Drives the pill fill (via themeColor) and the inner-shadow shader
+                // inside the expanded album bg.
                 property color dominantColor: Qt.rgba(0.349, 0.557, 1.0, 1.0)
-                expandedGlowColor: dominantColor
                 themeColor: dominantColor
 
                 // Flip all foreground (text / icons / controls) from white to black
@@ -548,6 +540,9 @@ ShellRoot {
                     onExited: (exitCode) => {
                         if (exitCode === 0 && outPath !== "") {
                             musicPill.localArtPath = "file://" + outPath
+                        } else {
+                            console.warn("[music] art download failed (exit",
+                                exitCode + ") for", srcUrl)
                         }
                     }
                 }
@@ -621,7 +616,7 @@ ShellRoot {
                         property real maxBlur:    10.0
                         property real blurStart:  0.5
 
-                        fragmentShader: "file:///home/user/.config/quickshell/clock/album_blur.frag.qsb"
+                        fragmentShader: Qt.resolvedUrl("album_blur.frag.qsb")
                     }
 
                     // ── Hover tint — boosts contrast between the fg text/icons
@@ -652,7 +647,7 @@ ShellRoot {
                         property real  glowIntensity: 1.0
                         property real  topWeight:     0.25
 
-                        fragmentShader: "file:///home/user/.config/quickshell/clock/album_glow.frag.qsb"
+                        fragmentShader: Qt.resolvedUrl("album_glow.frag.qsb")
                     }
 
                     // Dismiss expanded state when clicking anywhere on the album bg
@@ -911,17 +906,3 @@ ShellRoot {
     }
 
 }
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload
-// reload

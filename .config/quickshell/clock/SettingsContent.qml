@@ -11,14 +11,17 @@ import Quickshell.Bluetooth
 Item {
     id: root
 
+    enum View { Settings, Wifi, Sound, Bluetooth, Power }
+
     required property var net    // NetworkService instance
     required property var sink   // PwNode (Pipewire.defaultAudioSink)
     required property var battery // UPower.displayDevice
 
-    property bool showingWifi: false
-    property bool showingSound: false
-    property bool showingBluetooth: false
-    property bool showingPower: false
+    property int view: SettingsContent.View.Settings
+    readonly property bool showingWifi:      view === SettingsContent.View.Wifi
+    readonly property bool showingSound:     view === SettingsContent.View.Sound
+    readonly property bool showingBluetooth: view === SettingsContent.View.Bluetooth
+    readonly property bool showingPower:     view === SettingsContent.View.Power
     property string passwordRowSsid: ""
     property bool showPassword: false
     property string connectError: ""
@@ -41,7 +44,7 @@ Item {
 
     // ── Battery helpers (for header + optional future modules) ──
     readonly property bool _batteryReady: battery && battery.ready && battery.isPresent
-    readonly property real _batteryPercent: {
+    readonly property int _batteryPercent: {
         if (!_batteryReady) return 0
         if (battery.state === UPowerDeviceState.FullyCharged) return 100
         return Math.round(battery.percentage * 100)
@@ -65,6 +68,14 @@ Item {
     Process {
         id: setSinkProc
         running: false
+        property string _stderr: ""
+        stderr: StdioCollector { onStreamFinished: setSinkProc._stderr = text }
+        onExited: (code, status) => {
+            if (code !== 0) {
+                console.warn("[settings] wpctl set-default failed (exit",
+                    code + "):", setSinkProc._stderr.trim() || "(no stderr)")
+            }
+        }
     }
 
     Connections {
@@ -110,7 +121,7 @@ Item {
                 anchors.margins: -4
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.showingPower = true
+                onClicked: root.view = SettingsContent.View.Power
             }
 
             // Battery section. The hover area is sized to the FULL row width
@@ -146,7 +157,7 @@ Item {
                     Text {
                         id: percentText
                         anchors.verticalCenter: parent.verticalCenter
-                        text: Math.round(root._batteryPercent) + "%"
+                        text: root._batteryPercent + "%"
                         color: Qt.rgba(1, 1, 1, 0.8)
                         font.family: "Geist"; font.pixelSize: 12; font.weight: Font.Medium
                         font.letterSpacing: -0.12
@@ -192,10 +203,7 @@ Item {
             WifiIcon {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: 24
-                signalLevel: {
-                    const s = root.net.connectedSignal
-                    return s >= 70 ? 3 : s >= 40 ? 2 : s > 0 ? 1 : 0
-                }
+                signalLevel: root.net.signalLevel(root.net.connectedSignal)
             }
 
             Text {
@@ -214,7 +222,7 @@ Item {
                 id: wifiCardMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                onClicked: { root.showingWifi = true; wifiView._rebuildModel(); root.net.scan() }
+                onClicked: { root.view = SettingsContent.View.Wifi; wifiView._rebuildModel(); root.net.scan() }
             }
         }
 
@@ -253,7 +261,7 @@ Item {
                 id: btCardMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                onClicked: root.showingBluetooth = true
+                onClicked: root.view = SettingsContent.View.Bluetooth
             }
         }
 
@@ -306,7 +314,7 @@ Item {
                 id: soundCardMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                onClicked: root.showingSound = true
+                onClicked: root.view = SettingsContent.View.Sound
             }
 
             Shape {
@@ -421,7 +429,7 @@ Item {
                 id: backMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                onClicked: { root.passwordRowSsid = ""; root.showingWifi = false }
+                onClicked: { root.passwordRowSsid = ""; root.view = SettingsContent.View.Settings }
             }
         }
 
@@ -504,10 +512,7 @@ Item {
                     id: rowIcon
                     x: 17
                     anchors.verticalCenter: parent.verticalCenter
-                    signalLevel: {
-                        const s = row.modelData.signal
-                        return s >= 70 ? 3 : s >= 40 ? 2 : s > 0 ? 1 : 0
-                    }
+                    signalLevel: root.net.signalLevel(row.modelData.signal)
                 }
 
                 Text {
@@ -694,12 +699,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 16
             anchors.verticalCenter: pwBackButton.verticalCenter
-            signalLevel: {
-                const n = passwordView.pwNet
-                if (!n) return 0
-                const s = n.signal
-                return s >= 70 ? 3 : s >= 40 ? 2 : s > 0 ? 1 : 0
-            }
+            signalLevel: passwordView.pwNet ? root.net.signalLevel(passwordView.pwNet.signal) : 0
         }
 
         // ── Password input pill ──
@@ -834,7 +834,7 @@ Item {
                 id: soundBackMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                onClicked: root.showingSound = false
+                onClicked: root.view = SettingsContent.View.Settings
             }
         }
 
@@ -990,7 +990,7 @@ Item {
                 id: btBackMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                onClicked: root.showingBluetooth = false
+                onClicked: root.view = SettingsContent.View.Settings
             }
         }
 
@@ -1187,7 +1187,7 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.showingPower = false
+                onClicked: root.view = SettingsContent.View.Settings
             }
         }
 
@@ -1264,7 +1264,7 @@ Item {
                 label: "Sleep"
                 onActivated: {
                     Quickshell.execDetached(["systemctl", "suspend"])
-                    root.showingPower = false
+                    root.view = SettingsContent.View.Settings
                 }
             }
             PowerRow {
@@ -1272,7 +1272,7 @@ Item {
                 label: "Restart"
                 onActivated: {
                     Quickshell.execDetached(["systemctl", "reboot"])
-                    root.showingPower = false
+                    root.view = SettingsContent.View.Settings
                 }
             }
             PowerRow {
@@ -1280,7 +1280,7 @@ Item {
                 label: "Shut down"
                 onActivated: {
                     Quickshell.execDetached(["systemctl", "poweroff"])
-                    root.showingPower = false
+                    root.view = SettingsContent.View.Settings
                 }
             }
         }

@@ -14,11 +14,10 @@
 
 ## Components
 - `Pill.qml` — generic pill with SDF fragment shader (`pill.frag.qsb`). Parameters: `animationDuration`, `animateShader`, `shaderEnabled`, `restFill1/2`, `hoverFill1/2`, `glowEnabled`, `activeCornerRadius`
-- `NotificationModule.qml` — two `PanelWindow`s (main at `WlrLayer.Top`, big at `WlrLayer.Overlay` for z-order). `currentToast` derived from `notifServer.trackedNotifications` (single source of truth). Auto-hide timers: Low 2.5s, Normal 5s, Critical 60s. Critical urgency morphs into a big sibling pill.
-- `NotificationCenter.qml` — scrollable `Flickable + Column + Repeater` with reversed model (newest on top)
-- `SettingsPopup.qml` / `SettingsContent.qml` — settings surface with nested panels
-- `WifiPopup.qml` / `NetworkService.qml` — Wi-Fi management with inline password field
-- `BatteryPanel.qml`, `*Icon.qml`, `*.svg` — supporting UI
+- `NotificationModule.qml` — two `PanelWindow`s (main at `WlrLayer.Top`, big at `WlrLayer.Overlay` for z-order). `currentToast` derived from `notifServer.trackedNotifications` (single source of truth). Auto-hide timers: Low 2.5s, Normal 5s, Critical 60s. Critical urgency morphs into a big sibling pill. Notification center (scrollable list) is inlined into the expanded pill.
+- `SettingsContent.qml` — settings surface with nested panels (wifi / sound / bluetooth / power views). Wi-Fi password entry is inline.
+- `NetworkService.qml` — Wi-Fi management via `nmcli` subprocess
+- `BatteryPanel.qml` (unused, preserved as a future opt-in), `*Icon.qml`, `*.svg` — supporting UI
 
 ## Shaders
 - Sources: `pill.frag`, `album_blur.frag`, `album_glow.frag`

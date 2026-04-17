@@ -26,6 +26,12 @@ Item {
         return sec && sec !== "--" && sec !== ""
     }
 
+    // Map nmcli 0..100 signal strength to a 0..3 icon level.
+    // Thresholds: 70+ = full (3), 40+ = medium (2), 1+ = weak (1), 0 = none.
+    function signalLevel(s) {
+        return s >= 70 ? 3 : s >= 40 ? 2 : s > 0 ? 1 : 0
+    }
+
     function scan() {
         if (!scanProc.running) scanProc.running = true
     }
@@ -62,6 +68,7 @@ Item {
         id: savedProc
         command: ["nmcli", "-t", "-f", "NAME", "connection", "show"]
         running: false
+        property string _stderr: ""
         stdout: StdioCollector {
             onStreamFinished: {
                 const names = {}
@@ -73,6 +80,13 @@ Item {
                 root._savedNames = names
             }
         }
+        stderr: StdioCollector { onStreamFinished: savedProc._stderr = text }
+        onExited: (code, status) => {
+            if (code !== 0) {
+                console.warn("[NetworkService] saved-connections query failed (exit",
+                    code + "):", savedProc._stderr.trim() || "(no stderr)")
+            }
+        }
     }
 
     // ── Scan process ──
@@ -80,6 +94,14 @@ Item {
         id: scanProc
         command: ["nmcli", "-t", "-f", "IN-USE,SSID,SECURITY,SIGNAL", "device", "wifi", "list", "--rescan", "auto"]
         running: false
+        property string _stderr: ""
+        stderr: StdioCollector { onStreamFinished: scanProc._stderr = text }
+        onExited: (code, status) => {
+            if (code !== 0) {
+                console.warn("[NetworkService] scan failed (exit",
+                    code + "):", scanProc._stderr.trim() || "(no stderr)")
+            }
+        }
         stdout: StdioCollector {
             onStreamFinished: {
                 function parseFields(line) {
@@ -126,7 +148,6 @@ Item {
                     }
                     if (inUse === "*") connected = ssid
                 }
-                console.log("NET-DEBUG scan parsed", Object.keys(result).length, "networks, connected:", connected)
                 root.networks = result
                 root.connectedSsid = connected
                 root.scanFinished()
@@ -142,14 +163,44 @@ Item {
         property string _stderr: ""
         stdout: StdioCollector { onStreamFinished: {} }
         stderr: StdioCollector { onStreamFinished: connectProc._stderr = text }
+        onStarted: connectTimeout.restart()
         onExited: (code, status) => {
+            connectTimeout.stop()
             root.busy = false
+            const stderr = connectProc._stderr.trim()
             const ok = code === 0
-            if (!ok) root.lastError = connectProc._stderr.trim()
-            else root.lastError = ""
-            root.connectResult(connectProc.targetSsid, ok, root.lastError)
+            let msg = ""
+            if (!ok) {
+                if (stderr === "" && code === 127) msg = "nmcli not installed"
+                else if (stderr.indexOf("Secrets were required") >= 0) msg = "Incorrect password"
+                else if (stderr.indexOf("No network with SSID") >= 0) msg = "Network not found"
+                else if (stderr.indexOf("not authorized") >= 0) msg = "Permission denied"
+                else msg = stderr || ("Connect failed (exit " + code + ")")
+                console.warn("[NetworkService] connect failed (exit",
+                    code + "):", stderr || "(no stderr)")
+            }
+            root.lastError = msg
+            root.connectResult(connectProc.targetSsid, ok, msg)
             savedProc.running = true
             root.scan()
+        }
+    }
+
+    // Guards against a hung `nmcli connect` (portal, slow DHCP) — without this,
+    // `busy` would stay true forever and every subsequent connect attempt is
+    // silently dropped by the `if (busy) return` guard in connect().
+    Timer {
+        id: connectTimeout
+        interval: 30000
+        repeat: false
+        onTriggered: {
+            if (connectProc.running) {
+                console.warn("[NetworkService] connect timed out after 30s, killing")
+                connectProc.running = false
+            }
+            root.busy = false
+            root.lastError = "Connect timed out"
+            root.connectResult(connectProc.targetSsid, false, root.lastError)
         }
     }
 
@@ -157,7 +208,13 @@ Item {
     Process {
         id: disconnectProc
         running: false
+        property string _stderr: ""
+        stderr: StdioCollector { onStreamFinished: disconnectProc._stderr = text }
         onExited: (code, status) => {
+            if (code !== 0) {
+                console.warn("[NetworkService] disconnect failed (exit",
+                    code + "):", disconnectProc._stderr.trim() || "(no stderr)")
+            }
             root.busy = false
             savedProc.running = true
             root.scan()
@@ -168,7 +225,15 @@ Item {
     Process {
         id: radioProc
         running: false
-        onExited: (code, status) => root.scan()
+        property string _stderr: ""
+        stderr: StdioCollector { onStreamFinished: radioProc._stderr = text }
+        onExited: (code, status) => {
+            if (code !== 0) {
+                console.warn("[NetworkService] radio toggle failed (exit",
+                    code + "):", radioProc._stderr.trim() || "(no stderr)")
+            }
+            root.scan()
+        }
     }
 
     // ── Initial + periodic scan ──

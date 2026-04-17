@@ -10,6 +10,8 @@ import QtQuick.Shapes
 ShellRoot {
     id: root
 
+    enum Mode { Idle, Compact, Big }
+
     // Two separate Wayland layer surfaces sharing the same state. The big
     // critical pill lives in bigPanel (below) so each surface gets its own
     // Hyprland blur pass — when they were one surface, the overlap region
@@ -17,8 +19,8 @@ ShellRoot {
     // under the big pill.
     readonly property bool _active: centerOpen || _isExpanded
 
-    // Bell counter — tracks the live list size, so it can't drift out of sync
-    // with the notification center. Bound to `notifCount` (Repeater-driven).
+    // Bell counter — alias of `notifCount` so the live list size can't drift
+    // out of sync with the notification center (notifCount is Repeater-driven).
     readonly property int unreadCount: notifCount
 
     // Single source of truth: the currently-shown toast is the newest live
@@ -42,8 +44,6 @@ ShellRoot {
         ? _newestTracked : null
     readonly property bool hasToast: currentToast !== null
 
-    // Exposed so NotificationCenter (separate PopupWindow) can anchor to the
-    // bell pill and share the single NotificationServer instance.
     readonly property alias server: notifServer
     readonly property alias bellAnchor: pill
     property bool centerOpen: false
@@ -61,11 +61,11 @@ ShellRoot {
 
     // Outer pill morphs through three `mode` states, all rendered as sub-pills
     // or overlays *inside* the single `pill`:
-    //   "idle"    — bell-only (flat or chipped by hover/peek)
-    //   "compact" — bell sub-pill + toast sub-pill side-by-side (36 tall)
-    //   "big"     — full-width rich content (276 × 54, critical only, 5s)
+    //   Mode.Idle    — bell-only (flat or chipped by hover/peek)
+    //   Mode.Compact — bell sub-pill + toast sub-pill side-by-side (36 tall)
+    //   Mode.Big     — full-width rich content (276 × 54, critical only, 5s)
     // centerOpen is orthogonal: overrides width/height via activeWidth/Height.
-    property string mode: "idle"
+    property int mode: NotificationModule.Mode.Idle
 
     // Geometric constants.
     readonly property int emptyPillWidth: 40
@@ -184,15 +184,15 @@ ShellRoot {
     // together — missing any one creates dead zones where peek dies mid-move.
     // Requires at least one live notification; cached `_lastBody` alone is
     // not enough, else peek resurrects content the user already dismissed.
-    readonly property bool _peekable: mode === "idle"
+    readonly property bool _peekable: mode === NotificationModule.Mode.Idle
         && notifCount > 0
         && (bellHover.containsMouse
             || bellClick.containsMouse
             || toastInvoke.containsMouse
             || toastX.hovered)
         && (_lastSummary !== "" || _lastBody !== "")
-    readonly property bool _isExpanded: mode !== "idle" || _peekable
-    readonly property bool _isBig: mode === "big"
+    readonly property bool _isExpanded: mode !== NotificationModule.Mode.Idle || _peekable
+    readonly property bool _isBig: mode === NotificationModule.Mode.Big
 
     // Sole state-transition handler — fires whenever the derived currentToast
     // flips (new arrival, user dismiss, auto-hide, center open/close, any of
@@ -207,10 +207,10 @@ ShellRoot {
             _lastBody    = currentToast.body || ""
             _lastIcon    = currentToast.image || currentToast.appIcon || ""
             _lastTime    = Qt.formatTime(new Date(), "h:mmap").toLowerCase()
-            mode = "compact"
+            mode = NotificationModule.Mode.Compact
             // Urgency-driven lifetime. Ignore sender's expireTimeout.
-            //   Critical: 60s total (2s compact morph + 5s big hold + 53s
-            //             compact after).
+            //   Critical: 60s total (350ms compact morph + 5s big hold +
+            //             ~54.65s compact after).
             //   Normal:   5s.
             //   Low:      2.5s (glance-and-go).
             toastLifeTimer.interval =
@@ -222,7 +222,7 @@ ShellRoot {
                 criticalCompactTimer.restart()
             }
         } else {
-            mode = "idle"
+            mode = NotificationModule.Mode.Idle
             toastLifeTimer.stop()
         }
     }
@@ -264,7 +264,7 @@ ShellRoot {
         interval: 350
         repeat: false
         onTriggered: {
-            root.mode = "big"
+            root.mode = NotificationModule.Mode.Big
             criticalBigTimer.restart()
         }
     }
@@ -273,7 +273,7 @@ ShellRoot {
         id: criticalBigTimer
         interval: 5000
         repeat: false
-        onTriggered: root.mode = "compact"
+        onTriggered: root.mode = NotificationModule.Mode.Compact
     }
 
     // Auto-dismiss the active compact toast after a fixed window. Restarted
@@ -283,7 +283,7 @@ ShellRoot {
     // we'd rather the shell always reclaims screen real estate.
     //   - Low      (urgency 0): 2.5s
     //   - Normal   (urgency 1): 5s
-    //   - Critical (urgency 2): 60s  (2s compact + 5s big + 53s compact-after)
+    //   - Critical (urgency 2): 60s  (350ms compact + 5s big + ~54.65s compact-after)
     Timer {
         id: toastLifeTimer
         interval: 5000
@@ -649,12 +649,6 @@ ShellRoot {
                 id: toastTextMetrics
                 text: toastText.text
                 font: toastText.font
-                onAdvanceWidthChanged: console.log("[ctext] '" + text
-                    + "' advanceWidth=" + advanceWidth.toFixed(1)
-                    + " bounding.width=" + boundingRect.width.toFixed(1)
-                    + " bubble.width=" + pill.toastSubWidth
-                    + " text.width=" + toastText.width
-                    + " text.implicitWidth=" + toastText.implicitWidth.toFixed(1))
             }
         }
 

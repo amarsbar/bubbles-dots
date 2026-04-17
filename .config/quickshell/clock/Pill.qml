@@ -16,10 +16,6 @@ Item {
     property real activeCornerRadius: -1
     readonly property bool expanded: activeHeight > 0
 
-    // Optional: override the expanded-state glow color (e.g. from album art).
-    // Default matches the dock's blue inner glow theme.
-    property color expandedGlowColor: Qt.rgba(0.349, 0.557, 1.0, 1.0)
-
     // Optional theme tint — when set (alpha > 0), replaces the default white fill
     // and suppresses the amber hover glow. Used by the music pill to tint itself
     // with the dominant album color across all non-expanded states.
@@ -130,7 +126,7 @@ Item {
         Behavior on glowIntensity { enabled: pill.animateShader; NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
         Behavior on glowRadius    { enabled: pill.animateShader; NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
 
-        fragmentShader: "file:///home/user/.config/quickshell/clock/pill.frag.qsb"
+        fragmentShader: Qt.resolvedUrl("pill.frag.qsb")
     }
 
     // ── Gradient border ring ──
