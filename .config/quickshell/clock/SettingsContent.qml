@@ -13,9 +13,9 @@ Item {
 
     enum View { Settings, Wifi, Sound, Bluetooth, Power }
 
-    required property var net    // NetworkService instance
-    required property var sink   // PwNode (Pipewire.defaultAudioSink)
-    required property var battery // UPower.displayDevice
+    required property var net
+    required property var sink
+    required property var battery
 
     property int view: SettingsContent.View.Settings
     readonly property bool showingWifi:      view === SettingsContent.View.Wifi
@@ -35,14 +35,14 @@ Item {
     readonly property int powerHeight: 176
 
     readonly property int viewWidth: popupWidth
-    readonly property int viewHeight: showingWifi
-        ? (passwordRowSsid !== "" ? passwordHeight : wifiHeight)
-        : showingSound ? soundHeight
-        : showingBluetooth ? bluetoothHeight
-        : showingPower ? powerHeight
-        : settingsHeight
+    readonly property int viewHeight: {
+        if (showingWifi) return passwordRowSsid !== "" ? passwordHeight : wifiHeight
+        if (showingSound) return soundHeight
+        if (showingBluetooth) return bluetoothHeight
+        if (showingPower) return powerHeight
+        return settingsHeight
+    }
 
-    // ── Battery helpers (for header + optional future modules) ──
     readonly property bool _batteryReady: battery && battery.ready && battery.isPresent
     readonly property int _batteryPercent: {
         if (!_batteryReady) return 0
@@ -64,7 +64,6 @@ Item {
         return mins + "m"
     }
 
-    // ── Set default sink process ──
     Process {
         id: setSinkProc
         running: false
@@ -88,9 +87,6 @@ Item {
         }
     }
 
-    // ════════════════════════════════════════════
-    // ── Settings View (bottom-anchored) ──
-    // ════════════════════════════════════════════
     Item {
         id: settingsView
         anchors.left: parent.left
@@ -101,7 +97,6 @@ Item {
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
 
-        // ── Header row: power / battery / lock ──
         Item {
             id: headerRow
             x: 16; y: 15
@@ -194,7 +189,6 @@ Item {
             }
         }
 
-        // ── Wifi card ──
         Rectangle {
             x: 16; y: 52; width: 94; height: 92; radius: 12
             color: Qt.rgba(0.792, 0.867, 1.0, wifiCardMouse.containsMouse ? 0.25 : 0.15)
@@ -226,7 +220,6 @@ Item {
             }
         }
 
-        // ── Bluetooth card ──
         Rectangle {
             x: 122; y: 52; width: 94; height: 92; radius: 12
             color: Qt.rgba(0.792, 0.867, 1.0, btCardMouse.containsMouse ? 0.25 : 0.15)
@@ -265,7 +258,6 @@ Item {
             }
         }
 
-        // ── Sound card ──
         Rectangle {
             id: volumeCard
             x: 16; y: 154; width: 200; height: 60; radius: 12
@@ -393,9 +385,6 @@ Item {
         }
     } // settingsView
 
-    // ════════════════════════════════════════════
-    // ── Wifi View (fills parent) ──
-    // ════════════════════════════════════════════
     Item {
         id: wifiView
         anchors.fill: parent
@@ -404,7 +393,6 @@ Item {
         visible: opacity > 0 && root.passwordRowSsid === ""
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
 
-        // ── Back button ──
         Rectangle {
             id: backButton
             x: 16; y: 12; width: 26; height: 26; radius: 13
@@ -433,7 +421,6 @@ Item {
             }
         }
 
-        // ── Title ──
         Text {
             x: 51
             anchors.verticalCenter: backButton.verticalCenter
@@ -442,7 +429,6 @@ Item {
             font.family: "Geist"; font.pixelSize: 15; font.weight: Font.Medium
         }
 
-        // ── Toggle ──
         Rectangle {
             x: 184; y: 16; width: 32; height: 18; radius: 9
             color: Qt.rgba(0.792, 0.867, 1.0, 0.30)
@@ -459,10 +445,8 @@ Item {
             }
         }
 
-        // ── Divider ──
         Rectangle { x: 16; y: 49; width: 200; height: 1; color: Qt.rgba(0.792, 0.867, 1.0, 0.20) }
 
-        // ── Network list ──
         property var _networkModel: []
         function _rebuildModel() {
             const arr = Object.values(root.net.networks)
@@ -494,7 +478,6 @@ Item {
                 readonly property bool isHovered: rowMouse.containsMouse
                 readonly property bool isPasswordRow: root.passwordRowSsid === modelData.ssid
 
-                // Pill background
                 Rectangle {
                     id: pillBg
                     x: 10; y: 0; width: 212; height: 36; radius: 18
@@ -644,9 +627,6 @@ Item {
         } // ListView
     } // wifiView
 
-    // ════════════════════════════════════════════
-    // ── Password View (94px, fills parent) ──
-    // ════════════════════════════════════════════
     Item {
         id: passwordView
         anchors.fill: parent
@@ -656,7 +636,6 @@ Item {
 
         readonly property var pwNet: root.passwordRowSsid !== "" ? root.net.networks[root.passwordRowSsid] ?? null : null
 
-        // ── Back button ──
         Rectangle {
             id: pwBackButton
             x: 12; y: 12; width: 26; height: 26; radius: 13
@@ -685,7 +664,6 @@ Item {
             }
         }
 
-        // ── Network name ──
         Text {
             x: 44
             anchors.verticalCenter: pwBackButton.verticalCenter
@@ -694,7 +672,6 @@ Item {
             font.family: "Geist"; font.pixelSize: 15; font.weight: Font.Medium
         }
 
-        // ── Wifi signal icon (top-right) ──
         WifiIcon {
             anchors.right: parent.right
             anchors.rightMargin: 16
@@ -702,7 +679,6 @@ Item {
             signalLevel: passwordView.pwNet ? root.net.signalLevel(passwordView.pwNet.signal) : 0
         }
 
-        // ── Password input pill ──
         Rectangle {
             x: 10; y: 46
             width: 212; height: 36; radius: 18
@@ -740,7 +716,6 @@ Item {
                 }
             }
 
-            // ── Eye toggle ──
             Item {
                 anchors.right: parent.right
                 anchors.rightMargin: 10
@@ -798,9 +773,6 @@ Item {
         }
     } // passwordView
 
-    // ════════════════════════════════════════════
-    // ── Sound Output View (fills parent) ──
-    // ════════════════════════════════════════════
     Item {
         id: soundView
         anchors.fill: parent
@@ -809,7 +781,6 @@ Item {
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
 
-        // ── Back button ──
         Rectangle {
             id: soundBackBtn
             x: 16; y: 12; width: 26; height: 26; radius: 13
@@ -846,14 +817,12 @@ Item {
             font.family: "Geist"; font.pixelSize: 15; font.weight: Font.Medium
         }
 
-        // ── Divider ──
         Rectangle {
             id: soundDivider
             x: 16; y: 49; width: 200; height: 1
             color: Qt.rgba(0.792, 0.867, 1.0, 0.2)
         }
 
-        // ── Sink list ──
         ListView {
             id: sinkList
             anchors.left: parent.left
@@ -883,7 +852,6 @@ Item {
                 property bool isDefault: modelData.id === (Pipewire.defaultAudioSink?.id ?? -1)
                 property bool isHovered: sinkRowMouse.containsMouse
 
-                // Pill background
                 Rectangle {
                     anchors.fill: parent
                     anchors.leftMargin: 10; anchors.rightMargin: 10
@@ -923,7 +891,6 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                // Checkmark (if default)
                 Shape {
                     anchors.right: parent.right
                     anchors.rightMargin: 16
@@ -957,16 +924,12 @@ Item {
         }
     } // soundView
 
-    // ════════════════════════════════════════════
-    // ── Bluetooth View (fills parent) ──
-    // ════════════════════════════════════════════
     Item {
         id: bluetoothView
         anchors.fill: parent
         clip: true
         visible: root.showingBluetooth
 
-        // ── Back button ──
         Rectangle {
             id: btBackButton
             x: 16; y: 12; width: 26; height: 26; radius: 13
@@ -994,7 +957,6 @@ Item {
             }
         }
 
-        // ── Title ──
         Text {
             x: 51
             anchors.verticalCenter: btBackButton.verticalCenter
@@ -1003,7 +965,6 @@ Item {
             font.family: "Geist"; font.pixelSize: 15; font.weight: Font.Medium
         }
 
-        // ── Toggle ──
         Rectangle {
             x: 184; y: 16; width: 32; height: 18; radius: 9
             color: Qt.rgba(0.792, 0.867, 1.0, 0.30)
@@ -1022,10 +983,8 @@ Item {
             }
         }
 
-        // ── Divider ──
         Rectangle { x: 16; y: 49; width: 200; height: 1; color: Qt.rgba(0.792, 0.867, 1.0, 0.20) }
 
-        // ── Device list ──
         ListView {
             id: btDeviceList
             x: 0; y: 56
@@ -1044,7 +1003,6 @@ Item {
                 required property var modelData
                 readonly property bool isConnected: modelData.connected
 
-                // Pill background
                 Rectangle {
                     x: 10; y: 0; width: 212; height: 36; radius: 18
                     color: Qt.rgba(0.792, 0.867, 1.0, 0.10)
@@ -1063,7 +1021,6 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                // Hover area
                 MouseArea {
                     id: btRowMouse
                     anchors.fill: parent
@@ -1165,15 +1122,11 @@ Item {
         } // ListView
     } // bluetoothView
 
-    // ════════════════════════════════════════════
-    // ── Power Menu View (fills parent) ──
-    // ════════════════════════════════════════════
     Item {
         id: powerView
         anchors.fill: parent
         visible: root.showingPower
 
-        // ── Back button (top-left) ──
         Rectangle {
             id: powerBackBtn
             x: 16; y: 12; width: 26; height: 26; radius: 13
@@ -1191,7 +1144,6 @@ Item {
             }
         }
 
-        // ── Title ──
         Text {
             x: 51
             anchors.verticalCenter: powerBackBtn.verticalCenter
@@ -1201,14 +1153,12 @@ Item {
             font.letterSpacing: -0.14
         }
 
-        // ── Divider ──
         Rectangle {
             id: powerDivider
             x: 16; y: 50; width: 200; height: 1
             color: Qt.rgba(0.792, 0.867, 1.0, 0.20)
         }
 
-        // ── Action rows ──
         Column {
             id: powerActions
             x: 10; y: 56
@@ -1256,9 +1206,6 @@ Item {
                 }
             }
 
-            // Power actions dispatch via logind over systemctl. Running as a
-            // plain argv (no `sh -c`) keeps the call simple and avoids any
-            // quoting/PATH oddities in Quickshell's exec path.
             PowerRow {
                 iconSource: Qt.resolvedUrl("sleep.svg")
                 label: "Sleep"
@@ -1284,6 +1231,6 @@ Item {
                 }
             }
         }
-    } // powerView
+    }
 
 }

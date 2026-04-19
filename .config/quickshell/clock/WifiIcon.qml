@@ -1,12 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
 
-// Wifi icon with 3 arcs (top arc, middle arc, bottom dot).
-// signalLevel 0..3 drives per-bar opacity.
-//   0 = disconnected (all dim)
-//   1 = dot only
-//   2 = dot + middle
-//   3 = all three
 Item {
     id: root
     width: 20
@@ -17,9 +11,7 @@ Item {
     readonly property real _activeAlpha: 1.0
     readonly property real _dimAlpha: 0.3
 
-    // All three arcs share the same vertical white 0.5→0.9 gradient.
-    // The SVG coords live in a 40×36 viewBox; we anchor each Shape at (-11,-10)
-    // so the arcs land inside our 20×16 container.
+    // SVG coords are in a 40×36 viewBox; anchor at (-11,-10) to fit the 20×16 container.
     component WifiArc: Shape {
         x: -11
         y: -10
@@ -40,7 +32,6 @@ Item {
         }
     }
 
-    // Top arc (strongest — shows at level 3)
     WifiArc {
         opacity: root.signalLevel >= 3 ? root._activeAlpha : root._dimAlpha
         WifiArcPath {
@@ -48,7 +39,6 @@ Item {
         }
     }
 
-    // Middle arc (shows at level 2+)
     WifiArc {
         opacity: root.signalLevel >= 2 ? root._activeAlpha : root._dimAlpha
         WifiArcPath {
@@ -56,7 +46,6 @@ Item {
         }
     }
 
-    // Bottom dot (shows at level 1+)
     WifiArc {
         opacity: root.signalLevel >= 1 ? root._activeAlpha : root._dimAlpha
         WifiArcPath {

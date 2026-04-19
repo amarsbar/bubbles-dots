@@ -14,18 +14,28 @@ import Quickshell.Widgets
 ShellRoot {
     id: dock
 
-    // Dock layout constants — pills sit 8px from the nearest screen edge
-    // with 8px gaps between adjacent pills. Right-side panels chase each
-    // other's widths via `clockPillW` / `settingsPillW`, which each pill
-    // writes back via onImplicitWidthChanged.
     readonly property int edgePad: 8
     readonly property int pillGap: 8
+    // clockPillW/settingsPillW chase each other's actual implicitWidths so
+    // neighboring panels can anchor against them without a binding loop.
     property int clockPillW: 77
     property int settingsPillW: 88
 
     NotificationModule { id: notifMod }
 
-    // ── Clock panel (bottom-right) ──
+    // One-shot cleanup of stale /tmp album-art caches from prior sessions.
+    // `-mtime +1` spares anything touched in the last 24h so we never delete
+    // the currently-playing track's art mid-session.
+    Process {
+        id: artCleanupProc
+        running: true
+        command: ["find", "/tmp", "-maxdepth", "1", "-name",
+            "quickshell-album-*.img", "-mtime", "+1", "-delete"]
+        onExited: (code) => {
+            if (code !== 0) console.warn("[shell] art cleanup failed (exit", code + ")")
+        }
+    }
+
     Variants {
         model: Quickshell.screens
 
@@ -115,11 +125,6 @@ ShellRoot {
         }
     }
 
-    // Battery now lives in the settings popup header. The standalone pill
-    // is preserved in BatteryPanel.qml (not imported) — a future setting can
-    // toggle between that layout and the integrated header.
-
-    // ── Settings panel (to the left of the clock) ──
     Variants {
         model: Quickshell.screens
 
@@ -144,10 +149,8 @@ ShellRoot {
             WlrLayershell.keyboardFocus: settingsExpanded ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
             exclusionMode: ExclusionMode.Ignore
 
-            // Restrict clicks to the pill's current bounds — when compact,
-            // the upper ~244px of the 250×280 surface is transparent but
-            // would still eat pointer events from adjacent panels / windows
-            // without this mask.
+            // Without this mask, the transparent upper region of the panel
+            // surface would still swallow pointer events from adjacent windows.
             mask: Region { item: settingsPill }
 
             readonly property var batteryDevice: UPower.displayDevice
@@ -164,7 +167,6 @@ ShellRoot {
             NetworkService { id: net }
             PwObjectTracker { objects: [Pipewire.defaultAudioSink] }
 
-            // ── Settings expansion state ──
             property bool settingsExpanded: false
 
             HyprlandFocusGrab {
@@ -183,7 +185,6 @@ ShellRoot {
                 }
             }
 
-            // ── Volume OSD state ──
             property bool volumeOsdShowing: false
             property bool _volumeInit: false
             readonly property int osdFullWidth: 160
@@ -220,7 +221,6 @@ ShellRoot {
 
             readonly property int wifiLevel: net.signalLevel(net.connectedSignal)
 
-            // ── Settings pill (bottom-right anchored, expands up+left) ──
             Pill {
                 id: settingsPill
                 anchors.right: parent.right
@@ -229,11 +229,7 @@ ShellRoot {
                 onImplicitWidthChanged: dock.settingsPillW = implicitWidth
                 Component.onCompleted: dock.settingsPillW = implicitWidth
 
-                // Idle icons row: [battery] [wifi] [grid]. Each gap = 4 (Figma).
-                // Percent text only appears on hover, expanding the pill to the
-                // left — battery, wifi, grid stay glued to the right edge.
-                // 10px outer padding × 2 + icons + 4px gaps. Battery is optional
-                // (desktop without UPower display device → no icon, no slot).
+                // Battery icon is omitted entirely when there is no display device.
                 readonly property int iconsBaseWidth: 20
                     + (batteryIconItem.visible ? batteryIconItem.width + 4 : 0)
                     + wifiIconItem.width + 4 + gridIconItem.width
@@ -250,9 +246,6 @@ ShellRoot {
                 activeHeight: settingsPanel.settingsExpanded ? settingsContent.viewHeight : -1
                 activeCornerRadius: settingsPanel.settingsExpanded ? 16 : -1
 
-                // ── Normal pill content (bottom-right area, fades when expanded) ──
-                // Layout per Figma: 10px outer padding, 4px gap between icons.
-                // Order (l→r): battery, [percent on hover], wifi, grid.
                 GridIcon {
                     id: gridIconItem
                     anchors.right: parent.right
@@ -274,11 +267,8 @@ ShellRoot {
                     Behavior on opacity { NumberAnimation { duration: 150 } }
                 }
 
-                // Percent slot: clipped Item that animates from 0 → text width
-                // on hover. Text is right-anchored inside, so it slides in from
-                // the right as the slot expands. Pill's implicitWidth Behavior
-                // and this slot's width Behavior share 300ms, so they stay in
-                // sync — battery slides left, slot reveals text in lockstep.
+                // Width Behavior must share duration with the pill's implicitWidth
+                // Behavior so the text reveal stays in lockstep with the expansion.
                 Item {
                     id: percentSlot
                     anchors.right: wifiIconItem.left
@@ -320,7 +310,6 @@ ShellRoot {
                     Behavior on opacity { NumberAnimation { duration: 150 } }
                 }
 
-                // ── Volume slider (to the left of wifi, revealed as pill expands) ──
                 Shape {
                     id: osdSpeaker
                     anchors.left: parent.left
@@ -383,7 +372,6 @@ ShellRoot {
                     }
                 }
 
-                // ── Settings content (fills pill when expanded) ──
                 SettingsContent {
                     id: settingsContent
                     anchors.fill: parent
@@ -401,7 +389,6 @@ ShellRoot {
         }
     }
 
-    // ── Music player (bottom-right, inboard of clock + settings pills) ──
     Variants {
         model: Quickshell.screens
 
@@ -426,12 +413,8 @@ ShellRoot {
             WlrLayershell.keyboardFocus: musicExpanded ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
             exclusionMode: ExclusionMode.Ignore
 
-            // Restrict clicks to the pill's current bounds — the upper
-            // transparent portion of the 286×286 surface would otherwise
-            // eat pointer events when the pill is compact.
             mask: Region { item: musicPill }
 
-            // ── Player selection (same pattern as noctalia-shell) ──
             property var player: null
             readonly property bool hasPlayer: player !== null
             visible: hasPlayer
@@ -439,7 +422,6 @@ ShellRoot {
             function updatePlayer() {
                 if (!Mpris.players || !Mpris.players.values) { player = null; return }
                 let all = Mpris.players.values
-                // Prefer a playing player, otherwise take first with canPlay
                 let playing = null
                 let fallback = null
                 for (let i = 0; i < all.length; i++) {
@@ -463,7 +445,6 @@ ShellRoot {
             readonly property bool isHover: musicPill.hovered && !musicExpanded
             readonly property bool isExpanded: musicExpanded
 
-            // Convenience properties (null-safe, same as noctalia)
             readonly property bool isPlaying: player ? (player.playbackState === MprisPlaybackState.Playing) : false
             readonly property string trackTitle: player ? (player.trackTitle || "") : ""
             readonly property string trackAlbum: player ? (player.trackAlbum || "") : ""
@@ -488,21 +469,12 @@ ShellRoot {
                 activeHeight: musicPanel.musicExpanded ? 274 : -1
                 activeCornerRadius: musicPanel.musicExpanded ? 16 : -1
 
-                // Dominant album color — written by ColorQuantizer via onColorsChanged.
-                // Drives the pill fill (via themeColor) and the inner-shadow shader
-                // inside the expanded album bg.
                 property color dominantColor: Qt.rgba(0.349, 0.557, 1.0, 1.0)
                 themeColor: dominantColor
 
-                // Flip all foreground (text / icons / controls) from white to black
-                // once the dominant album color is bright enough that white washes
-                // out. Somers perceptual luminance with threshold Ls > 0.5 —
-                // saturated yellows (#FFFF00) correctly trigger the flip because
-                // the sRGB coefficients weight green dominantly.
-                // Only applies in the expanded (clicked) state — the compact /
-                // hover states always use white over the darkening tint, per
-                // the Figma. In expanded, the flip is driven by the dominant
-                // album color's perceptual luminance (Ls > 0.5 → black).
+                // Only in expanded state: flip text to black when the album is
+                // bright enough that white would wash out. ^0.678 approximates
+                // CIE L* so the 0.5 threshold sits at perceptual midpoint.
                 readonly property bool _fgDark: {
                     if (!musicPanel.musicExpanded) return false
                     const c = dominantColor
@@ -566,10 +538,8 @@ ShellRoot {
                     }
                 }
 
-                // ── Expanded album bg — clipper bound directly to pill size ──
-                // By anchoring to the pill (anchors.fill: parent) and using the pill's own
-                // animated size, the clipper and the pill are the SAME animated value —
-                // zero lag, no pill visible during transition, no leftover image on collapse.
+                // Anchoring to the pill keeps the clipper and the pill sharing one
+                // animated size, so there's no lag or leftover image on collapse.
                 ClippingRectangle {
                     id: albumBg
                     anchors.fill: parent
@@ -577,13 +547,10 @@ ShellRoot {
                     radius: musicPill._cornerRadius
                     color: "transparent"
 
+                    // Source image for albumBlur — hidden via ShaderEffectSource;
+                    // the blurred output renders in its place.
                     Image {
                         id: albumImage
-                        // Fixed 274x274, bottom-left aligned with clipper's bottom-left.
-                        // Rendered by albumBlur below — we hide the source via the
-                        // ShaderEffectSource and show the blurred output in its place.
-                        // Visible in hover and expanded states (not normal), so the bottom
-                        // strip of the album peeks out through the hover pill too.
                         width: 274; height: 274
                         x: 0
                         y: albumBg.height - 274
@@ -600,10 +567,6 @@ ShellRoot {
                         live: true
                     }
 
-                    // ── Progressive blur on the bottom half (0 → 10px) ──
-                    // Samples the album image via ShaderEffectSource and applies a blur
-                    // whose radius grows from 0 (at the vertical midpoint) to ~10px at the
-                    // bottom edge. Geometry mirrors albumImage exactly.
                     ShaderEffect {
                         id: albumBlur
                         width: 274; height: 274
@@ -619,19 +582,14 @@ ShellRoot {
                         fragmentShader: Qt.resolvedUrl("album_blur.frag.qsb")
                     }
 
-                    // ── Hover tint — boosts contrast between the fg text/icons
-                    // and the album strip. Uses the inverse of the fg color so a
-                    // bright album (black text) gets a subtle *white* tint while
-                    // a dark album (white text) gets the usual darkening.
+                    // Hover tint uses the inverse of the fg color, so bright albums
+                    // get a white tint and dark albums get the usual darkening.
                     Rectangle {
                         anchors.fill: parent
                         color: Qt.rgba(musicPill._fgInverse.r, musicPill._fgInverse.g, musicPill._fgInverse.b, 0.4)
                         visible: musicPanel.isHover
                     }
 
-                    // ── Inner glow (SDF shader, bottom-weighted) ──
-                    // album_glow.frag dims the top (topWeight) and fades to full intensity
-                    // at the bottom. Same smoothstep SDF as pill.frag — soft inner glow.
                     ShaderEffect {
                         anchors.fill: parent
                         visible: albumImage.visible
@@ -650,9 +608,6 @@ ShellRoot {
                         fragmentShader: Qt.resolvedUrl("album_glow.frag.qsb")
                     }
 
-                    // Dismiss expanded state when clicking anywhere on the album bg
-                    // that isn't a control or text element (those have their own MouseAreas
-                    // which take priority via z-order)
                     MouseArea {
                         anchors.fill: parent
                         enabled: musicPanel.musicExpanded
@@ -661,8 +616,6 @@ ShellRoot {
                 }
 
 
-                // ── Song title ──
-                // Hover: (38, 11), 80w, 14px. Expanded: (20, 226), scrolling marquee if too long
                 Item {
                     id: titleContainer; z: 2
                     x: musicPanel.isExpanded ? 16 : 14
@@ -680,7 +633,6 @@ ShellRoot {
                         spacing: 40
                         y: 0
 
-                        // Only scroll when expanded and text overflows
                         property bool shouldScroll: musicPanel.isExpanded && titleText.implicitWidth > titleContainer.width && titleContainer.width > 0
 
                         NumberAnimation on x {
@@ -720,8 +672,6 @@ ShellRoot {
                     }
                 }
 
-                // ── Album name ──
-                // Expanded: (20, 244), 14px Normal
                 Text {
                     id: albumText; z: 2
                     x: 16
@@ -734,13 +684,8 @@ ShellRoot {
                     Behavior on y { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                 }
 
-                // ── Playback controls ──
-                // Right-anchored inside the pill so the controls' screen
-                // position stays fixed while the pill grows LEFTWARD on
-                // hover/expand — text & album art appear to the left of them.
-                // rightMargin chosen so the controls' right edge matches the
-                // Figma x offsets (78-8-62=8 in collapsed, 200-128-62=10 in
-                // hover, 274-176-82=16 in expanded).
+                // Anchored right so the controls' screen position is fixed
+                // while the pill grows leftward on hover/expand.
                 Item {
                     id: controls; z: 3
                     anchors.right: parent.right
@@ -755,7 +700,6 @@ ShellRoot {
                     Behavior on width  { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                     Behavior on height { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
 
-                    // Prev — Figma: y=7 in 24h controls, y=13 in 36h controls
                     Shape {
                         x: 0; y: musicPanel.isExpanded ? 13 : 7
                         width: 11; height: 10; opacity: 0.6
@@ -769,14 +713,12 @@ ShellRoot {
                         MouseArea { anchors.fill: parent; anchors.margins: -8; onClicked: { if (musicPanel.player && musicPanel.player.canGoPrevious) musicPanel.player.previous() } }
                     }
 
-                    // Play/pause circle — x=19 in hover (62-wide), x=23 in expanded (82-wide)
                     Rectangle {
                         x: musicPanel.isExpanded ? 23 : 19
                         y: 0; width: parent.height; height: parent.height; radius: width / 2
                         color: Qt.rgba(musicPill._fg.r, musicPill._fg.g, musicPill._fg.b, 0.1)
                         Behavior on x { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
 
-                        // Play triangle — native 8.33x8.28, scaled to fill circle proportionally
                         Shape {
                             anchors.centerIn: parent
                             width: 8.33; height: 8.28; scale: parent.width / 24
@@ -794,7 +736,6 @@ ShellRoot {
                         MouseArea { anchors.fill: parent; onClicked: { if (!musicPanel.player) return; if (musicPanel.player.playbackState === MprisPlaybackState.Playing) musicPanel.player.pause(); else musicPanel.player.play() } }
                     }
 
-                    // Next — Figma: x=51 in 62w controls, x=71 in 82w controls
                     Shape {
                         x: musicPanel.isExpanded ? 71 : 51; y: musicPanel.isExpanded ? 13 : 7
                         width: 11; height: 10; opacity: 0.6
@@ -817,7 +758,6 @@ ShellRoot {
         }
     }
 
-    // ── Workspace indicator (bottom-left) ──
     Variants {
         model: Quickshell.screens
 
@@ -868,6 +808,8 @@ ShellRoot {
 
                             required property int index
                             property int slotIndex: index
+                            // Slots 0-2 pin workspaces 1-3; slot 3 floats to
+                            // the current workspace once it's ≥ 4.
                             property int wsId: slotIndex < 3 ? slotIndex + 1 : Math.max(4, workspacePanel.currentWsId)
                             property bool isActive: workspacePanel.currentWsId === wsId
 
