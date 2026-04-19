@@ -199,6 +199,10 @@ Item {
             connectProc.running = false
             root.busy = false
             root.lastError = "Connect timed out"
+            // Refresh saved-names + network list, mirroring onExited so
+            // UI state isn't stale for up to 15s (next periodic scan).
+            savedProc.running = true
+            root.scan()
             root.connectResult(connectProc.targetSsid, false, root.lastError)
         }
     }
