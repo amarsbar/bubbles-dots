@@ -645,7 +645,7 @@ ShellRoot {
                             : 0
 
                         width: 286
-                        height: itemBody.contentHeight + 36
+                        height: itemBody.contentHeight + 36  // 8 top + 16 header + 4 gap + 8 bot
                         radius: 12
                         color: itemHover.containsMouse ? root.bgSubtle : root.noColor
                         Behavior on color { ColorAnimation { duration: 150 } }

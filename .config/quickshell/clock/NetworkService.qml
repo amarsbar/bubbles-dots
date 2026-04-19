@@ -159,7 +159,13 @@ Item {
         property string _stderr: ""
         property bool _timedOut: false
         stderr: StdioCollector { onStreamFinished: connectProc._stderr = text }
-        onStarted: { connectProc._timedOut = false; connectTimeout.restart() }
+        onStarted: {
+            connectProc._timedOut = false
+            // Reset so a second connect whose nmcli writes no stderr doesn't
+            // surface the prior run's error message via lastError.
+            connectProc._stderr = ""
+            connectTimeout.restart()
+        }
         onExited: (code, status) => {
             connectTimeout.stop()
             if (connectProc._timedOut) return

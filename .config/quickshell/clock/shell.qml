@@ -29,10 +29,13 @@ ShellRoot {
     Process {
         id: artCleanupProc
         running: true
+        property string _stderr: ""
         command: ["find", "/tmp", "-maxdepth", "1", "-name",
             "quickshell-album-*.img", "-mtime", "+1", "-delete"]
+        stderr: StdioCollector { onStreamFinished: artCleanupProc._stderr = text }
         onExited: (code) => {
-            if (code !== 0) console.warn("[shell] art cleanup failed (exit", code + ")")
+            if (code !== 0) console.warn("[shell] art cleanup failed (exit",
+                code + "):", artCleanupProc._stderr.trim() || "(no stderr)")
         }
     }
 
