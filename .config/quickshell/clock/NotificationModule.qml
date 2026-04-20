@@ -12,30 +12,20 @@ ShellRoot {
 
     enum Mode { Idle, Compact, Big }
 
-    // Two separate Wayland layer surfaces sharing the same state. The big
-    // critical pill lives in bigPanel (below) so each surface gets its own
-    // Hyprland blur pass — when they were one surface, the overlap region
-    // between pill and bigPill combined alphas in ways that suppressed blur
-    // under the big pill.
+    // Two separate Wayland surfaces: a combined surface suppressed Hyprland
+    // blur in the region where the two pills overlapped.
     readonly property bool _active: centerOpen || _isExpanded
 
-    // Bell counter — alias of `notifCount` so the live list size can't drift
-    // out of sync with the notification center (notifCount is Repeater-driven).
     readonly property int unreadCount: notifCount
 
-    // Single source of truth: the currently-shown toast is the newest live
-    // notification in `notifServer.trackedNotifications`, unless auto-hide
-    // has "parked" it or the center is open (in which case there's no toast
-    // to show). Dismissing a notification just removes it from tracked —
-    // this binding re-evaluates and either picks the next-newest or becomes
-    // null. No manual currentToast assignments anywhere.
+    // Currently-shown toast derives from notifServer.trackedNotifications
+    // (single source of truth — never assign currentToast directly).
     readonly property var _newestTracked: {
         const xs = notifs
         return xs && xs.length > 0 ? xs[xs.length - 1] : null
     }
-    // Reference to the notification we've visually hidden but left tracked
-    // (auto-expire, or user was in the center when it arrived). Cleared when
-    // a new notification arrives so the fresh one surfaces as a toast.
+    // Visually hidden (auto-expired or arrived while center was open) but
+    // still tracked. Cleared when a newer notification arrives.
     property var _autoHiddenToast: null
     readonly property var currentToast:
         !centerOpen
@@ -44,44 +34,28 @@ ShellRoot {
         ? _newestTracked : null
     readonly property bool hasToast: currentToast !== null
 
-    readonly property alias server: notifServer
-    readonly property alias bellAnchor: pill
     property bool centerOpen: false
 
-    // Cached notification content. Updated whenever a new toast arrives;
-    // persists across dismiss so hover-peek can show the last one. Summary
-    // and body are tracked separately: compact/peek shows summary (short
-    // glanceable line); big pill shows body (the detail that doesn't fit
-    // in the compact form).
+    // Persists across dismiss so hover-peek can re-show the last toast.
     property string _lastAppName: ""
     property string _lastSummary: ""
     property string _lastBody: ""
     property string _lastIcon: ""
     property string _lastTime: ""
 
-    // Outer pill morphs through three `mode` states, all rendered as sub-pills
-    // or overlays *inside* the single `pill`:
-    //   Mode.Idle    — bell-only (flat or chipped by hover/peek)
-    //   Mode.Compact — bell sub-pill + toast sub-pill side-by-side (36 tall)
-    //   Mode.Big     — full-width rich content (276 × 54, critical only, 5s)
-    // centerOpen is orthogonal: overrides width/height via activeWidth/Height.
+    // centerOpen is orthogonal to mode: it overrides pill width/height via
+    // activeWidth/Height regardless of which mode is active.
     property int mode: NotificationModule.Mode.Idle
 
-    // Geometric constants.
     readonly property int emptyPillWidth: 40
     readonly property int pillBottomMargin: 8
     readonly property int leftEdgePad: 8
     readonly property int currentPillWidth: pill ? pill.implicitWidth : emptyPillWidth
-    // Right edge of whichever pill is currently widest on screen — either the
-    // main pill (compact/center) or the critical bigPill (which extends past
-    // the main pill's right edge during its 5s morph). Workspace panel uses
-    // this so it stays clear of the bigPill during critical notifications.
+    // Workspace panel anchors to this so it stays clear of the critical bigPill.
     readonly property int currentPillRightEdge: {
         const mainRight = leftEdgePad + currentPillWidth
-        // bigPill rests invisibly at toastSub dimensions when not critical
-        // (shaderEnabled gate: _isBig || height > 25). Only count its width
-        // while it's actually visually present — otherwise the workspace pill
-        // would be shoved ~90px further right than the bell pill it sees.
+        // bigPill rests invisibly at toastSub dimensions when not critical,
+        // so only count its width while it's actually visually present.
         const bigVisible = bigPill && (_isBig || bigPill.height > 25)
         const bigRight = bigVisible ? (bigPill.x + bigPill.implicitWidth) : 0
         return Math.max(mainRight, bigRight)
@@ -101,24 +75,18 @@ ShellRoot {
     readonly property int centerGapAboveLine: 12
     readonly property int centerGapBelowLine: 12
 
-    // Live list of tracked notifications for the expanded center.
     readonly property var notifs: notifServer && notifServer.trackedNotifications
         ? notifServer.trackedNotifications.values
         : []
 
-    // Receipt timestamps (notif.id -> ms epoch), populated in onNotification.
+    // notif.id → ms epoch, populated in onNotification.
     property var receivedAt: ({})
 
-    // Palette — every color used by this module. Keeping them here makes the
-    // theme easy to reshape and eliminates duplicated Qt.rgba literals.
     readonly property color fgPrimary:   Qt.rgba(1, 1, 1, 0.8)
     readonly property color fgSecondary: Qt.rgba(1, 1, 1, 0.5)
     readonly property color fgTertiary:  Qt.rgba(1, 1, 1, 0.3)
     readonly property color bgSubtle:    Qt.rgba(1, 1, 1, 0.10)
     readonly property color bgHover:     Qt.rgba(1, 1, 1, 0.18)
-    readonly property color bgXRest:     Qt.rgba(1, 1, 1, 0.15)
-    readonly property color bgXHot:      Qt.rgba(1, 1, 1, 0.35)
-    readonly property color bgBig:       Qt.rgba(1, 1, 1, 0.20)
     readonly property color noColor:     Qt.rgba(0, 0, 0, 0)
 
     // Reactive notification count — bound to the Repeater deep inside the
@@ -126,16 +94,13 @@ ShellRoot {
     // avoids the snapshot-nature of `trackedNotifications.values`.
     readonly property int notifCount: notifList ? notifList.count : 0
 
-    // Cap for the notification list so the expanded pill fits inside the
-    // fixed 500-tall mainPanel surface. Chrome (75) + body + bottomMargin (7)
-    // + X overhang (~3) must all fit — past this point the Flickable scrolls.
+    // Cap so the expanded pill fits inside mainPanel's fixed 500-tall surface
+    // (chrome ~75 + bottomMargin ~7 + X overhang ~3 + body ≤ 400).
     readonly property int maxCenterBodyHeight: 400
 
-    // Computed height of the expanded pill: 75 of fixed chrome + body.
-    // Empty body is a fixed 152 placeholder; populated body estimated at
-    // 76px per item (36 chrome + up to 2 lines × 20px), capped at
-    // maxCenterBodyHeight. Reading ListView.contentHeight directly caused
-    // a binding loop via centerBody.height → ListView.height → contentHeight.
+    // Per-item height (76 = 2-line body at 40 + 36 chrome) is ESTIMATED, not
+    // measured, to avoid a binding loop between centerBody.height and its
+    // Flickable child's contentHeight. Keep in sync with the delegate.
     readonly property int centerBodyHeight: notifCount === 0
         ? 152
         : Math.min(maxCenterBodyHeight, notifCount * 76)
@@ -194,10 +159,8 @@ ShellRoot {
     readonly property bool _isExpanded: mode !== NotificationModule.Mode.Idle || _peekable
     readonly property bool _isBig: mode === NotificationModule.Mode.Big
 
-    // Sole state-transition handler — fires whenever the derived currentToast
-    // flips (new arrival, user dismiss, auto-hide, center open/close, any of
-    // the paths the old code had to mutate explicitly). Starts/stops timers,
-    // caches content, and drives `mode` — nothing else touches those.
+    // Sole state-transition handler for mode/timers/caches. Everything else
+    // flows through this via the derived currentToast binding.
     onCurrentToastChanged: {
         criticalCompactTimer.stop()
         criticalBigTimer.stop()
@@ -208,11 +171,8 @@ ShellRoot {
             _lastIcon    = currentToast.image || currentToast.appIcon || ""
             _lastTime    = Qt.formatTime(new Date(), "h:mmap").toLowerCase()
             mode = NotificationModule.Mode.Compact
-            // Urgency-driven lifetime. Ignore sender's expireTimeout.
-            //   Critical: 60s total (350ms compact morph + 5s big hold +
-            //             ~54.65s compact after).
-            //   Normal:   5s.
-            //   Low:      2.5s (glance-and-go).
+            // Sender's expireTimeout is ignored: apps commonly pass 0 / -1
+            // ("never" / "server default") but the shell always reclaims room.
             toastLifeTimer.interval =
                 currentToast.urgency === NotificationUrgency.Critical ? 60000
                 : currentToast.urgency === NotificationUrgency.Low ? 2500
@@ -227,10 +187,8 @@ ShellRoot {
         }
     }
 
-    // When the user closes the center, mark whatever's newest as "already
-    // seen" so closing doesn't resurface old notifications as fresh toasts.
-    // A genuinely new arrival (below, in NotificationServer.onNotification)
-    // clears this marker.
+    // On center close, mark the newest as "already seen" so it doesn't
+    // resurface as a toast. New arrivals clear this marker again.
     onCenterOpenChanged: {
         if (!centerOpen) _autoHiddenToast = _newestTracked
     }
@@ -245,20 +203,17 @@ ShellRoot {
         onNotification: (notif) => {
             notif.tracked = true
 
-            // Record receipt time for the expanded center's timestamp column.
             const next = Object.assign({}, root.receivedAt)
             next[notif.id] = Date.now()
             root.receivedAt = next
 
-            // Clear the auto-hide marker so this new notification surfaces
-            // as a toast (if the center isn't already open). Everything else
-            // — currentToast selection, mode, timers, caches — is driven by
-            // the derived currentToast binding via onCurrentToastChanged.
+            // Cleared so the new notification surfaces as a toast (all other
+            // state is driven by the currentToast binding).
             root._autoHiddenToast = null
         }
     }
 
-    // Critical: 350ms compact → grow to big.
+    // Critical-urgency choreography: 350ms compact → big → 5s → compact.
     Timer {
         id: criticalCompactTimer
         interval: 350
@@ -268,7 +223,6 @@ ShellRoot {
             criticalBigTimer.restart()
         }
     }
-    // Critical: 5s in big → shrink back to compact (stays expanded).
     Timer {
         id: criticalBigTimer
         interval: 5000
@@ -276,27 +230,16 @@ ShellRoot {
         onTriggered: root.mode = NotificationModule.Mode.Compact
     }
 
-    // Auto-dismiss the active compact toast after a fixed window. Restarted
-    // each time `currentToast` changes (new notif or promoted from dismiss).
-    // Sender-supplied `expireTimeout` is ignored — apps commonly pass 0 /
-    // -1 which would mean "never" and "server default" per the spec, and
-    // we'd rather the shell always reclaims screen real estate.
-    //   - Low      (urgency 0): 2.5s
-    //   - Normal   (urgency 1): 5s
-    //   - Critical (urgency 2): 60s  (350ms compact + 5s big + ~54.65s compact-after)
     Timer {
         id: toastLifeTimer
         interval: 5000
         repeat: false
-        // Auto-expiry *hides* the toast but keeps the notification tracked
-        // in the center for later review. Only user-initiated X / Clear
-        // actually calls dismiss() on the Notification (which removes it
-        // from notifServer.trackedNotifications).
+        // Auto-expiry only hides the toast; user-initiated X/Clear is the
+        // only path that actually calls dismiss() on the Notification.
         onTriggered: root.hideActiveToast()
     }
 
-    // Remove a notification's receivedAt entry. Called from every dismiss path
-    // so the map doesn't grow unbounded over long sessions.
+    // Called from every dismiss path so receivedAt doesn't grow unbounded.
     function _forgetReceivedAt(id) {
         if (id === undefined || !(id in receivedAt)) return
         const next = Object.assign({}, receivedAt)
@@ -304,23 +247,11 @@ ShellRoot {
         receivedAt = next
     }
 
-    // Safe dismiss — a notification may have been destroyed externally between
-    // when we captured the ref and when we call .dismiss(). Log & continue.
-    function _safeDismiss(n) {
-        if (!n) return
-        try { n.dismiss() }
-        catch (e) { console.warn("[NotifModule] dismiss failed:", e) }
-    }
-
-    // Dismiss the currently-shown toast. Removes the Notification from
-    // notifServer.trackedNotifications; the `currentToast` derivation
-    // automatically re-picks the next-newest (or becomes null) and
-    // `onCurrentToastChanged` handles timers/mode.
     function dismissToast() {
         const t = currentToast
         if (!t) return
         const id = t.id
-        _safeDismiss(t)
+        t.dismiss()
         _forgetReceivedAt(id)
     }
 
@@ -361,10 +292,9 @@ ShellRoot {
             const n = list[i]
             if (!n) continue
             const id = n.id
-            _safeDismiss(n)
+            n.dismiss()
             _forgetReceivedAt(id)
         }
-        // unreadCount tracks notifCount automatically, so no explicit reset.
     }
 
     function _formatTime(ms) {
@@ -383,9 +313,6 @@ ShellRoot {
         onCleared: root.centerOpen = false
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    // Main panel — hosts the bell + toast-carrier pill and the X overlay.
-    // ════════════════════════════════════════════════════════════════════
     PanelWindow {
         id: mainPanel
 
@@ -393,38 +320,28 @@ ShellRoot {
         anchors.left: true
         margins.bottom: 0
         margins.left: 0
-        // Surface size is CONSTANT — same pattern as the music pill's 286×286
-        // panel. The pill animates inside a static canvas; Hyprland never
-        // resizes the layer-shell surface, so there is no frame race between
-        // Qt's anchor recompute (pill.bottom_in_panel) and the compositor's
-        // surface-top update — which previously caused the bell to teleport
-        // at the end of the close animation when an inflation timer flipped
-        // implicitHeight back from 500 → 70. The `mask` below restricts
-        // input to the pill + X overlay so the rest of the 800×500
-        // transparent area remains click-through for adjacent panels.
+        // Fixed surface size: the pill animates inside a static canvas so
+        // Hyprland never resizes the layer shell. Resizing triggered a frame
+        // race that teleported the bell at the end of close animations.
         implicitWidth: 800
         implicitHeight: 500
         color: "transparent"
 
-        // Top (not Overlay) so bigPanel — which stays at Overlay — is always
-        // rendered above mainPanel. Same-layer stacking within Overlay was
-        // flipping the big pill underneath mainPanel's pill in the overlap
-        // region; splitting layers guarantees the z-order.
+        // bigPanel stays at Overlay; splitting layers guarantees it renders
+        // above this one instead of z-fighting within a single layer.
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.namespace: "quickshell-clock"
         exclusionMode: ExclusionMode.Ignore
 
-        // Only the pill and its X button capture clicks — the rest of the
-        // 800-wide transparent surface falls through so other panels (settings
-        // popup, clock, etc.) stay interactive next to the bell.
+        // Only the pill and X button capture input — the rest of the
+        // transparent surface falls through to adjacent panels.
         mask: Region {
             item: pill
             Region { item: toastX }
         }
 
-        // Catches clicks in transparent panel regions (outside the pill) when the
-        // center is open — FocusGrab alone only fires for clicks routed to other
-        // windows, not for clicks that land on the (transparent) PanelWindow itself.
+        // FocusGrab alone doesn't fire for clicks that land on this window's
+        // own transparent region, so we need an explicit catcher.
         MouseArea {
             anchors.fill: parent
             enabled: root.centerOpen
@@ -432,88 +349,48 @@ ShellRoot {
             onClicked: root.centerOpen = false
         }
 
-    // No explicit Connections { target: currentToast } anymore — external
-    // close of any notification updates notifServer.trackedNotifications,
-    // which flows into `_newestTracked` → `currentToast`, which triggers
-    // `onCurrentToastChanged`. All state transitions go through that one
-    // handler.
-
-    // ════════════════════════════════════════════════════════════════════
-    // Outer notification pill — hosts bell + optional toast sub-pill inside,
-    // morphs to big (critical) or to notification center (centerOpen).
-    // ════════════════════════════════════════════════════════════════════
     Pill {
         id: pill
-        // Pinned to the left edge of the panel (8px inside the 800-wide
-        // transparent surface). Growth extends rightward — the workspace
-        // panel chases via notifMod.currentPillRightEdge so the 8px gap
-        // stays constant as the pill expands/contracts.
         x: root.leftEdgePad
         anchors.bottom: parent.bottom
         anchors.bottomMargin: root.pillBottomMargin
-        // Parent pill is ALWAYS compact-height. On critical, only the toast
-        // content extracts itself into a separate bigPill above; the parent
-        // keeps its expanded (bell + reserved toast slot) width so the bell
-        // does not shift.
+        // Parent pill stays compact-height always; critical toasts extract
+        // their content into a separate bigPill so the bell never shifts.
         pillHeight: root.compactPillHeight
         interactive: false
 
-        // Expansion: when centerOpen is true, morph into the notification center
-        // pill (302 × centerHeight, corner radius 16). Pill.qml's Behaviors on
-        // implicitWidth/implicitHeight/_cornerRadius handle the animation.
         activeWidth:        root.centerOpen ? root.centerWidth : -1
         activeHeight:       root.centerOpen ? root.centerHeight : -1
         activeCornerRadius: root.centerOpen ? root.centerCornerRadius : -1
 
-        // Chip mode = bell wrapped in a visible sub-pill bg. Purely a hover
-        // affordance — never auto-activated by toast arrival. When a toast
-        // arrives, nothing should be "hovered" until the user's cursor lands
-        // on the bell (chipMode) or the toast sub-pill (its own bg).
+        // Bell sub-pill hover affordance; never auto-activated by toast arrival.
         readonly property bool chipMode: bellClick.containsMouse
 
-        // Bell sub-pill content width. Symmetric p=4 when no count, asymmetric
-        // pl=4 pr=8 gap=4 when count shown.
         readonly property int bellSubWidth: root.unreadCount > 0
             ? (4 + 20 + 4 + unreadText.implicitWidth + 8)
             : (4 + 20 + 4)
-        // Toast sub-pill: p=4 left + (icon 16 + gap 4 when icon is actually
-        // shown) + text (max 220 before ellipsis, +30% on hover → 286) +
-        // right padding. Right padding is 4 at rest, 12 when hovered — the
-        // extra 8 carves space for the X overlay so it doesn't visually
-        // overlap the text.
-        //
-        // Icon space must be conditional on visibility: when the sender
-        // didn't provide an app-icon, the text's anchors shift to
-        // parent.left so the bubble should shrink by 20px accordingly,
-        // else the bubble has phantom empty space to the right of the text.
         readonly property int toastTextMax: 220
-        // Use TextMetrics (not Text.implicitWidth) for the natural width.
-        // Text.implicitWidth gets clamped to the anchored/elided width when
-        // `elide: ElideRight + maximumLineCount: 1` + anchors.right are all
-        // set — which is a binding loop: bubble.width depends on it, and it
-        // depends on bubble.width via anchors. First-pass small width would
-        // persist forever, eliding notifications that should have fit.
+        // TextMetrics (not Text.implicitWidth): elided anchored Text would
+        // binding-loop against bubble width and lock in an under-sized first
+        // pass, permanently eliding toasts that should have fit.
         readonly property int toastSubWidth: 4
             + (toastIcon.visible ? (16 + 4) : 0)
             + Math.min(toastTextMetrics.advanceWidth, toastTextMax)
             + (toastInvoke.containsMouse ? 12 : 4)
 
         collapsedWidth: {
-            // _isExpanded is true for compact, big, AND peek — we keep the
-            // toast-reserved width during big so the parent does not shrink
+            // Keep toast-reserved width during Big so parent doesn't shrink
             // when the toast sub-pill hides.
             if (root._isExpanded) return 4 + bellSubWidth + toastSubWidth + 6
             if (chipMode) {
                 return root.unreadCount > 0
-                    ? (4 + bellSubWidth + 6)   // outer pl=4 pr=6
-                    : (6 + bellSubWidth + 6)   // outer px=6
+                    ? (4 + bellSubWidth + 6)
+                    : (6 + bellSubWidth + 6)
             }
-            // Flat (idle, not hovered): outer px=10, bell centered, no chip bg.
             return 10 + 20 + (root.unreadCount > 0 ? 4 + unreadText.implicitWidth : 0) + 10
         }
         expandedWidth: collapsedWidth
 
-        // ── Bell sub-pill background (visible only in chipMode) ──
         Rectangle {
             id: bellSubBg
             visible: !root.centerOpen
@@ -528,15 +405,8 @@ ShellRoot {
             Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         }
 
-        // Bell glyph position, flattened from a 3-level ternary so the state
-        // table reads clearly:
-        //   centerOpen → slot at 16 (header position)
-        //   chip-with-count / toast showing → 8 (outer pl=4 + sub pl=4)
-        //   chip-without-count / flat → 10 (centered in a 40-wide pill)
         readonly property int _bellX: {
             if (root.centerOpen) return root.centerSidePad
-            // _isExpanded covers compact/big/peek — bell always at x=8 in the
-            // pl=4 pr=6 chip layout whenever toast width is reserved.
             if (root._isExpanded) return 8
             if (pill.chipMode && root.unreadCount > 0) return 8
             return 10
@@ -545,8 +415,6 @@ ShellRoot {
             ? root.centerTopPad
             : (root.compactPillHeight - 20) / 2
 
-        // Bell glyph. Stays visible in big mode (parent pill does not collapse);
-        // slides to header slot when center opens.
         Image {
             id: bellGlyph
             x: pill._bellX
@@ -560,17 +428,10 @@ ShellRoot {
             Behavior on y { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
         }
 
-        // Count / header text. Position follows the bell.
-        // Collapsed: "6". Expanded: "6 Notifications".
         Text {
             id: unreadText
             visible: root.centerOpen || root.unreadCount > 0
             x: bellGlyph.x + 20 + 4
-            // Vertically centered on the bell glyph (20px tall). Previous
-            // `bellGlyph.y + 4` offset left the text baseline sitting below
-            // the bell's visual center because 12px Geist's ascent puts the
-            // cap height near the middle of the box — using verticalCenter
-            // on the Text box matches the bell cleanly in both states.
             anchors.verticalCenter: bellGlyph.verticalCenter
             text: root.centerOpen
                 ? (root.notifCount + " Notifications")
@@ -582,9 +443,6 @@ ShellRoot {
             font.letterSpacing: -0.12
         }
 
-        // ── Toast sub-pill (right of bell sub-pill, inside the same outer pill) ──
-        // Rounded-pill hover bg, independent of the bell's chip bg — so that
-        // hovering the toast highlights only the toast, and the bell stays bare.
         Rectangle {
             id: toastSub
             visible: !root._isBig && !root.centerOpen && root._isExpanded
@@ -593,10 +451,8 @@ ShellRoot {
             width: pill.toastSubWidth
             height: 24
             radius: 12
-            // Driven by the dedicated top-stacked toastInvoke MouseArea
-            // below — bellHover (also hover-enabled on the full pill) would
-            // otherwise capture hover first and leave an inner MouseArea's
-            // containsMouse flag flaky.
+            // Uses the dedicated toastInvoke MouseArea: bellHover covers the
+            // same area and would otherwise shadow this rectangle's hover.
             color: toastInvoke.containsMouse ? root.bgSubtle : root.noColor
             Behavior on color { ColorAnimation { duration: 200 } }
 
@@ -629,8 +485,6 @@ ShellRoot {
                 // Compact/peek shows the summary (short glance line). Fall
                 // back to body for notifications that only send a body.
                 text: root._lastSummary !== "" ? root._lastSummary : root._lastBody
-                // Figma 341:668 (resting): rgba(255,255,255,0.7).
-                // Figma 276:16321 (hover): brightens to full primary (0.8).
                 color: toastInvoke.containsMouse ? root.fgPrimary : Qt.rgba(1, 1, 1, 0.7)
                 Behavior on color { ColorAnimation { duration: 200 } }
                 font.family: "Geist"
@@ -678,11 +532,8 @@ ShellRoot {
             onClicked: root.centerOpen = !root.centerOpen
         }
 
-        // Toast-sub-pill click target — declared after bellHover/bellClick
-        // so it wins clicks and hover over the toast region. Drives the
-        // toast sub-pill's hover bg and invokes the notification's default
-        // action (opens the source app's window when clicked, mirroring
-        // what clicking a notification in GNOME/KDE does).
+        // Declared after bellHover/bellClick so it wins hover/clicks on the
+        // toast region.
         MouseArea {
             id: toastInvoke
             x: toastSub.x
@@ -697,12 +548,6 @@ ShellRoot {
             onClicked: root.invokeActiveToast()
         }
 
-        // ── Expanded content (Clear button, separator, body) ──────────────
-        // Appears inside the morphing pill when centerOpen is true. Pill's
-        // clip:true naturally hides everything until the pill grows wide/tall
-        // enough to contain it.
-
-        // Clear button (top-right of header row, same y as bell).
         Rectangle {
             id: clearBtn
             visible: root.centerOpen && root.notifCount > 0
@@ -732,7 +577,6 @@ ShellRoot {
             }
         }
 
-        // Separator line below header.
         Rectangle {
             id: centerSeparator
             visible: root.centerOpen
@@ -743,7 +587,6 @@ ShellRoot {
             color: root.bgSubtle
         }
 
-        // Body container.
         Item {
             id: centerBody
             visible: root.centerOpen
@@ -752,7 +595,6 @@ ShellRoot {
             width: root.centerWidth - 2 * root.centerSidePad
             height: root.centerBodyHeight
 
-            // Empty placeholder
             Text {
                 visible: root.notifCount === 0
                 anchors.centerIn: parent
@@ -763,18 +605,9 @@ ShellRoot {
                 font.weight: Font.Medium
             }
 
-            // List of notification items — extends 8px into the side padding
-            // on both sides for a wider hover target, matching Figma.
-            //
-            // Flickable + Column + Repeater instead of ListView because:
-            //   1. Column auto-sizes to actual delegate heights (ListView's
-            //      implicit height padding left empty space at the top when
-            //      one short notification didn't fill a 76px slot estimate).
-            //   2. Default TopToBottom flow; newest-first ordering is achieved
-            //      by reversing the model's values array. BottomToTop with a
-            //      single item anchored items to the bottom.
-            //   3. Flickable wraps Column for scroll support when content
-            //      exceeds the view's height cap.
+            // Flickable+Column+Repeater instead of ListView: Column auto-sizes
+            // to actual delegate heights, avoiding ListView's fixed-slot padding
+            // when one item is shorter than expected.
             Flickable {
                 id: notifList
                 visible: root.notifCount > 0
@@ -785,9 +618,6 @@ ShellRoot {
                 contentHeight: notifCol.height
                 boundsBehavior: Flickable.StopAtBounds
 
-                // Preserve the `count` property consumers relied on when this
-                // was a ListView / Repeater — the parent reads notifList.count
-                // to drive notifCount.
                 readonly property alias count: notifRepeater.count
 
                 Column {
@@ -796,9 +626,7 @@ ShellRoot {
 
                     Repeater {
                         id: notifRepeater
-                        // Reversed snapshot: newest-first. `notifs` re-emits
-                        // on trackedNotifications changes, so the slice stays
-                        // fresh. Small N; the Repeater recreate cost is fine.
+                        // Reversed for newest-first display order.
                         model: {
                             const arr = root.notifs
                             return arr ? arr.slice().reverse() : []
@@ -817,7 +645,7 @@ ShellRoot {
                             : 0
 
                         width: 286
-                        height: itemBody.contentHeight + 36  // 8 top-pad + 16 header + 4 gap + 8 bot-pad
+                        height: itemBody.contentHeight + 36  // 8 top + 16 header + 4 gap + 8 bot
                         radius: 12
                         color: itemHover.containsMouse ? root.bgSubtle : root.noColor
                         Behavior on color { ColorAnimation { duration: 150 } }
@@ -828,8 +656,6 @@ ShellRoot {
                             hoverEnabled: true
                         }
 
-                        // X button — shared component. Positioned 5px inside the
-                        // right edge and 3px above the top of the item.
                         XButton {
                             id: itemX
                             visible: itemHover.containsMouse || hovered
@@ -840,7 +666,7 @@ ShellRoot {
                             onClicked: {
                                 if (!item.modelData) return
                                 const id = item.modelData.id
-                                root._safeDismiss(item.modelData)
+                                item.modelData.dismiss()
                                 root._forgetReceivedAt(id)
                             }
                         }
@@ -907,17 +733,15 @@ ShellRoot {
                                 elide: Text.ElideRight
                             }
                         }
-                        } // close delegate Rectangle
-                    } // close Repeater
-                } // close Column
-            } // close Flickable (notifList)
-        } // close centerBody Item
-        } // end pill
+                        }
+                    }
+                }
+            }
+        }
+        }
 
-        // ── X button — overlays top-right corner of the parent pill while
-        // in compact/peek mode. Sibling of pill inside mainPanel, so its
-        // anchors resolve (QML requires parent-or-sibling relationship).
-        // Big-mode X lives in bigPanel.
+        // Sibling of pill (same parent) so anchors resolve. Big-mode X lives
+        // in bigPanel.
         XButton {
             id: toastX
             // Show only when the cursor is over the toast card (or the X
@@ -932,14 +756,10 @@ ShellRoot {
             baseAlpha: 0.15
             onClicked: root.dismissToast()
         }
-    } // end mainPanel
+    }
 
-    // ════════════════════════════════════════════════════════════════════
-    // Big panel — own layer surface so Hyprland can blur behind bigPill
-    // without the overlap-alpha issue that killed blur when both pills
-    // shared one surface. Matches mainPanel's anchoring/width so the
-    // bigPill lines up horizontally with the toast sub-pill's x offset.
-    // ════════════════════════════════════════════════════════════════════
+    // Separate layer surface so Hyprland blur doesn't lose the overlap
+    // region (a combined surface suppressed blur where the two pills met).
     PanelWindow {
         id: bigPanel
 
@@ -1005,7 +825,6 @@ ShellRoot {
             // are a no-op (dismiss goes through bigToastX).
             interactive: true
 
-            // Figma fill gradient alphas (295:16777 rest, 295:16784 hover).
             // Neutral white brighter-on-hover, not the default amber.
             restFill1:  Qt.rgba(1, 1, 1, 0.048)
             restFill2:  Qt.rgba(1, 1, 1, 0.12)
@@ -1129,5 +948,5 @@ ShellRoot {
             baseAlpha: 0.20
             onClicked: root.dismissToast()
         }
-    } // end bigPanel
-} // end ShellRoot
+    }
+}

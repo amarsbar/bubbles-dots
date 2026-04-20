@@ -26,8 +26,7 @@ Item {
         return sec && sec !== "--" && sec !== ""
     }
 
-    // Map nmcli 0..100 signal strength to a 0..3 icon level.
-    // Thresholds: 70+ = full (3), 40+ = medium (2), 1+ = weak (1), 0 = none.
+    // nmcli 0..100 → 0..3 icon level (none/weak/medium/full).
     function signalLevel(s) {
         return s >= 70 ? 3 : s >= 40 ? 2 : s > 0 ? 1 : 0
     }
@@ -63,7 +62,6 @@ Item {
         wifiEnabled = enabled
     }
 
-    // ── Saved connections process ──
     Process {
         id: savedProc
         command: ["nmcli", "-t", "-f", "NAME", "connection", "show"]
@@ -89,7 +87,6 @@ Item {
         }
     }
 
-    // ── Scan process ──
     Process {
         id: scanProc
         command: ["nmcli", "-t", "-f", "IN-USE,SSID,SECURITY,SIGNAL", "device", "wifi", "list", "--rescan", "auto"]
@@ -155,17 +152,23 @@ Item {
         }
     }
 
-    // ── Connect process ──
     Process {
         id: connectProc
         running: false
         property string targetSsid: ""
         property string _stderr: ""
-        stdout: StdioCollector { onStreamFinished: {} }
+        property bool _timedOut: false
         stderr: StdioCollector { onStreamFinished: connectProc._stderr = text }
-        onStarted: connectTimeout.restart()
+        onStarted: {
+            connectProc._timedOut = false
+            // Reset so a second connect whose nmcli writes no stderr doesn't
+            // surface the prior run's error message via lastError.
+            connectProc._stderr = ""
+            connectTimeout.restart()
+        }
         onExited: (code, status) => {
             connectTimeout.stop()
+            if (connectProc._timedOut) return
             root.busy = false
             const stderr = connectProc._stderr.trim()
             const ok = code === 0
@@ -194,17 +197,22 @@ Item {
         interval: 30000
         repeat: false
         onTriggered: {
-            if (connectProc.running) {
-                console.warn("[NetworkService] connect timed out after 30s, killing")
-                connectProc.running = false
-            }
+            // Process already exited on its own — onExited has/will fire the
+            // real connectResult; don't emit a stale timeout signal over it.
+            if (!connectProc.running) return
+            console.warn("[NetworkService] connect timed out after 30s, killing")
+            connectProc._timedOut = true
+            connectProc.running = false
             root.busy = false
             root.lastError = "Connect timed out"
+            // Refresh saved-names + network list, mirroring onExited so
+            // UI state isn't stale for up to 15s (next periodic scan).
+            savedProc.running = true
+            root.scan()
             root.connectResult(connectProc.targetSsid, false, root.lastError)
         }
     }
 
-    // ── Disconnect process ──
     Process {
         id: disconnectProc
         running: false
@@ -221,7 +229,6 @@ Item {
         }
     }
 
-    // ── Radio toggle process ──
     Process {
         id: radioProc
         running: false
@@ -236,7 +243,6 @@ Item {
         }
     }
 
-    // ── Initial + periodic scan ──
     Component.onCompleted: { savedProc.running = true; scan() }
     Timer {
         interval: 15000

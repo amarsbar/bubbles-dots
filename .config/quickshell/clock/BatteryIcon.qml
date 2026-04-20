@@ -6,7 +6,7 @@ Item {
     width: 20
     height: 12
 
-    property real percent: 0        // 0..100
+    property real percent: 0
     property bool isCharging: false
 
     Image {
@@ -17,7 +17,6 @@ Item {
         smooth: true
     }
 
-    // Fill bar — inside the hollow (SVG inner rect is 2,2 → 17,10)
     Rectangle {
         x: 3
         y: 3
@@ -30,7 +29,6 @@ Item {
         Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
     }
 
-    // Lightning bolt overlay (visible when charging)
     Shape {
         x: 6.5; y: 1.5
         width: 7; height: 9

@@ -1,15 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Standalone battery module (currently unused).
-//
-// Battery indication now lives in the settings popup header (see
-// SettingsContent.qml). This file is preserved so a future setting can toggle
-// between "battery in settings header" (current default) and "separate battery
-// pill" (this module, equivalent to the original layout pre-redesign).
-//
-// To re-enable: add `BatteryPanel {}` as a direct child of ShellRoot in
-// shell.qml, and adjust settingsPanel's right margin accordingly.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Services.UPower
@@ -26,7 +14,7 @@ Variants {
         screen: modelData
 
         anchors { bottom: true; right: true }
-        margins { bottom: 8; right: 292 }  // clock right-margin (24) + clock panel width (260) + gap (8)
+        margins { bottom: 8; right: 292 }
 
         implicitWidth: 140
         implicitHeight: 48
