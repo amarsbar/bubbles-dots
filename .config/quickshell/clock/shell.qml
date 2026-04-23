@@ -643,7 +643,7 @@ ShellRoot {
                             running: titleScroller.shouldScroll
                             from: 0
                             to: -(titleText.implicitWidth + titleScroller.spacing)
-                            duration: Math.max(4000, musicPanel.trackTitle.length * 120)
+                            duration: Math.max(5000, musicPanel.trackTitle.length * 150)
                             loops: Animation.Infinite
                             easing.type: Easing.Linear
                         }
@@ -675,16 +675,54 @@ ShellRoot {
                     }
                 }
 
-                Text {
-                    id: albumText; z: 2
+                Item {
+                    id: albumContainer; z: 2
                     x: 16
                     y: musicPanel.isExpanded ? 236 : 46
+                    width: musicPanel.isExpanded ? 152 : 0
+                    height: 18
                     visible: musicPanel.isExpanded
-                    text: musicPanel.trackAlbum
-                    color: musicPill._fg; opacity: 0.5
-                    font.family: "Geist"; font.pixelSize: 14
-                    font.weight: Font.Normal; font.letterSpacing: -0.14
-                    Behavior on y { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                    clip: true
+                    Behavior on y     { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                    Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+
+                    Row {
+                        id: albumScroller
+                        spacing: 40
+                        y: 0
+
+                        property bool shouldScroll: musicPanel.isExpanded && albumText.implicitWidth > albumContainer.width && albumContainer.width > 0
+
+                        NumberAnimation on x {
+                            id: albumScrollAnim
+                            running: albumScroller.shouldScroll
+                            from: 0
+                            to: -(albumText.implicitWidth + albumScroller.spacing)
+                            duration: Math.max(5000, musicPanel.trackAlbum.length * 150)
+                            loops: Animation.Infinite
+                            easing.type: Easing.Linear
+                        }
+
+                        onShouldScrollChanged: {
+                            if (!shouldScroll) x = 0
+                        }
+
+                        Text {
+                            id: albumText
+                            text: musicPanel.trackAlbum
+                            color: musicPill._fg; opacity: 0.5
+                            font.family: "Geist"; font.pixelSize: 14
+                            font.weight: Font.Normal; font.letterSpacing: -0.14
+                        }
+
+                        Text {
+                            visible: albumScroller.shouldScroll
+                            text: musicPanel.trackAlbum
+                            color: musicPill._fg; opacity: 0.5
+                            font.family: "Geist"; font.pixelSize: 14
+                            font.weight: Font.Normal; font.letterSpacing: -0.14
+                        }
+                    }
                 }
 
                 // Anchored right so the controls' screen position is fixed
